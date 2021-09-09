@@ -10,6 +10,14 @@ from adafruit_rgb_display.rgb import color565
 import adafruit_rgb_display.st7789 as st7789
 
 
+# Config for display baudrate (default max is 24mhz):
+BAUDRATE = 64000000                         # The pi can be very fast!
+
+WIDTH = 240
+HEIGHT = 240
+ROTATION = 180
+
+
 def get_stats():
     """
     Run shell scripts for system monitoring from here and return a list of result strings to be displayed.
@@ -38,20 +46,11 @@ def get_stats():
     return stats
 
 
-def main (argv=None):
-    # Colors used to display the various computer stats returned from get stats function:
-    fill_colors = [ "#FFFFFF", "#00FFFF", "#00FF00", "#FF0000", "#FFFF00", "#FF00FF", "#0000FF" ]
-
+def initialize_display ():
     # Configuration for CS and DC pins for Raspberry Pi
     cs_pin = digitalio.DigitalInOut(board.CE0)
     dc_pin = digitalio.DigitalInOut(board.D25)
     reset_pin = None
-
-    # Config for display baudrate (default max is 24mhz):
-    BAUDRATE = 64000000  # The pi can be very fast!
-
-    width = 240
-    height = 240
 
     # Create the ST7789 display:
     display = st7789.ST7789(
@@ -60,8 +59,8 @@ def main (argv=None):
         dc=dc_pin,
         rst=reset_pin,
         baudrate=BAUDRATE,
-        width=width,
-        height=height,
+        width=WIDTH,
+        height=HEIGHT,
         x_offset=0,
         y_offset=80,
     )
@@ -70,18 +69,25 @@ def main (argv=None):
     backlight.switch_to_output()
     backlight.value = True  # turn on backlight
 
-    buttonA = digitalio.DigitalInOut(board.D23)
-    buttonB = digitalio.DigitalInOut(board.D24)
+    buttonA = digitalio.DigitalInOut(board.D24)
+    buttonB = digitalio.DigitalInOut(board.D23)
     buttonA.switch_to_input()
     buttonB.switch_to_input()
 
+    return (display, backlight, buttonA, buttonB)
+
+
+def main (argv=None):
+    # Colors used to display the various computer stats returned from get stats function:
+    fill_colors = [ "#FFFFFF", "#00FFFF", "#00FF00", "#FF0000", "#FFFF00", "#FF00FF", "#0000FF" ]
     font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
 
-    dwidth = width - 1
-    dheight = height - 1
-    rotation = 180
+    display, backlight, buttonA, buttonB = initialize_display()
 
-    image = Image.new("RGB", (width, height))
+    dwidth = WIDTH - 1
+    dheight = HEIGHT - 1
+
+    image = Image.new("RGB", (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(image)
 
     # Main loop:
@@ -98,14 +104,19 @@ def main (argv=None):
                 draw.text((0, y), stat, font=font, fill=fill_color)
                 y += text_height
 
-        # if buttonB.value and not buttonA.value:  # just button A pressed
-        # draw.rectangle((0, 0, dwidth, dheight), outline=0, fill=(255, 0, 0))
+        if (not buttonA.value and buttonB.value):   # just button A pressed
+            fill_color = fill_colors[0]
+            draw.text((0, y), f"ButtonA={buttonA.value}, {buttonB.value}", font=font, fill=fill_color)
 
-        # if buttonA.value and not buttonB.value:  # just button B pressed
-        #     draw.rectangle((0, 0, dwidth, dheight), outline=0, fill=(0, 0, 255))
-        #     draw.text((0, 0), 'Example: this is text!', font=font, fill=(0, 0, 255))
+        elif (not buttonB.value and buttonA):       # just button B pressed
+            fill_color = fill_colors[0]
+            draw.text((0, y), f"ButtonB={buttonA.value}, {buttonB.value}", font=font, fill=fill_color)
 
-        display.image(image, rotation)
+        else:
+            fill_color = fill_colors[0]
+            draw.text((0, y), f"BOTH={buttonA.value}, {buttonB.value}", font=font, fill=fill_color)
+
+        display.image(image, ROTATION)
         time.sleep(1)
 
 
