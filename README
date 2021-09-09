@@ -1,0 +1,20 @@
+Installing CircuitPython libraries
+----------------------------------
+Needed to drive the PiTFT display.
+Follow instructions at this Adafruit tutorial:
+https://learn.adafruit.com/circuitpython-on-raspberrypi-linux/installing-circuitpython-on-raspberry-pi
+
+Run the test program:
+  > python3 blinktest.py
+
+
+Python programming the PiTFT display
+------------------------------------
+Following instructions at this Adafruit tutorial:
+  https://learn.adafruit.com/adafruit-mini-pitft-135x240-color-tft-add-on-for-raspberry-pi/python-setup
+
+Run the test program:
+  > sudo python3 rgb_display_minipitfttest.py
+
+Run the stats program:
+  > sudo python3 pistats.py

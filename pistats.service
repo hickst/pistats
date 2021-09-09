@@ -1,0 +1,12 @@
+# Unit file for the PiStats systemd service
+[Unit]
+Description=Produce computer stats and show them on the PiTFT display.
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/local/bin/pistats.py
+
+[Install]
+# Start service when system boots
+WantedBy=multi-user.target
