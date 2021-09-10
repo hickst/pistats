@@ -1,5 +1,10 @@
 #!/bin/env python3
-
+#
+# Program to show system statistics on an Adafruit PiTFT (240x240) display on a Raspberry Pi 4.
+#   Written by: Tom Hicks. 9/9/21. After code on Adafruit site:
+#     https://learn.adafruit.com/adafruit-mini-pitft-135x240-color-tft-add-on-for-raspberry-pi/python-stats
+#   Last Modified: Create/use display class. Display button status.
+#
 import board
 import digitalio
 import subprocess
@@ -12,15 +17,79 @@ import adafruit_rgb_display.st7789 as st7789
 
 # Config for display baudrate (default max is 24mhz):
 BAUDRATE = 64000000                         # The pi can be very fast!
+WIDTH = 240                                 # width of display
+HEIGHT = 240                                # height of display
+ROTATION = 180                              # rotation angle for top-to-bottom text
 
-WIDTH = 240
-HEIGHT = 240
-ROTATION = 180
+
+class DisplaySt7789 ():
+    """
+    Class to wrap the Adafruit PiTFT display, which uses the st7789 chip.
+    """
+
+    def __init__(self):
+        """
+        Constructor for class which initializes the display.
+        """
+        super().__init__()
+
+        cs_pin = digitalio.DigitalInOut(board.CE0)
+        dc_pin = digitalio.DigitalInOut(board.D25)
+        reset_pin = None
+
+        # Create the ST7789 display:
+        self.display = st7789.ST7789(
+            board.SPI(),
+            cs=cs_pin,
+            dc=dc_pin,
+            rst=reset_pin,
+            baudrate=BAUDRATE,
+            width=WIDTH,
+            height=HEIGHT,
+            x_offset=0,
+            y_offset=80,
+        )
+
+        self.backlight = digitalio.DigitalInOut(board.D22)
+        self.backlight.switch_to_output()
+        self.backlight.value = True  # turn on backlight
+
+        self.buttonA = digitalio.DigitalInOut(board.D23)
+        self.buttonB = digitalio.DigitalInOut(board.D24)
+        self.buttonA.switch_to_input()
+        self.buttonB.switch_to_input()
+
+
+    def set_backlight (self, on_off=True):
+        "Turn the backlighting ON (True) or OFF (False)."
+        self.backlight.value = on_off
+
+    def backlight_on (self):
+        "Return True if the backlighting is ON else False."
+        return self.backlight.value
+
+    def buttonA_on (self):
+        "Return True if Button A is depressed else False."
+        return not self.buttonA.value
+
+    def buttonA_off (self):
+        "Return True if Button A is not depressed else False."
+        return self.buttonA.value
+
+    def buttonB_on (self):
+        "Return True if Button B is depressed else False."
+        return not self.buttonB.value
+
+    def buttonB_off (self):
+        "Return True if Button A is not depressed else False."
+        return self.buttonB.value
+
 
 
 def get_stats():
     """
-    Run shell scripts for system monitoring from here and return a list of result strings to be displayed.
+    Run shell scripts for system monitoring from here and return a list of
+    result strings to be displayed.
     https://unix.stackexchange.com/questions/119126/command-to-display-memory-usage-disk-usage-and-cpu-load
     """
     cmd = "hostname"
@@ -46,43 +115,15 @@ def get_stats():
     return stats
 
 
-def initialize_display ():
-    # Configuration for CS and DC pins for Raspberry Pi
-    cs_pin = digitalio.DigitalInOut(board.CE0)
-    dc_pin = digitalio.DigitalInOut(board.D25)
-    reset_pin = None
-
-    # Create the ST7789 display:
-    display = st7789.ST7789(
-        board.SPI(),
-        cs=cs_pin,
-        dc=dc_pin,
-        rst=reset_pin,
-        baudrate=BAUDRATE,
-        width=WIDTH,
-        height=HEIGHT,
-        x_offset=0,
-        y_offset=80,
-    )
-
-    backlight = digitalio.DigitalInOut(board.D22)
-    backlight.switch_to_output()
-    backlight.value = True  # turn on backlight
-
-    buttonA = digitalio.DigitalInOut(board.D24)
-    buttonB = digitalio.DigitalInOut(board.D23)
-    buttonA.switch_to_input()
-    buttonB.switch_to_input()
-
-    return (display, backlight, buttonA, buttonB)
-
-
 def main (argv=None):
     # Colors used to display the various computer stats returned from get stats function:
-    fill_colors = [ "#FFFFFF", "#00FFFF", "#00FF00", "#FF0000", "#FFFF00", "#FF00FF", "#0000FF" ]
+    colors = { "pink": "#FF9999", "aqua": "#00FFFF", "green": "#00FF00",
+               "white": "#FFFFFF", "yellow": "#FFFF00", "magenta": "#FF00FF",
+               "blue": "#0000FF", "red": "#FF0000" }
+
     font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
 
-    display, backlight, buttonA, buttonB = initialize_display()
+    disp = DisplaySt7789()
 
     dwidth = WIDTH - 1
     dheight = HEIGHT - 1
@@ -99,24 +140,29 @@ def main (argv=None):
         stats = get_stats()
         if (stats):
             text_height = font.getsize(stats[0])[1]
+            fill_colors = list(colors.values())
             for ndx, stat in enumerate(stats):
                 fill_color = fill_colors[ndx % len(fill_colors)]
                 draw.text((0, y), stat, font=font, fill=fill_color)
                 y += text_height
 
-        if (not buttonA.value and buttonB.value):   # just button A pressed
+        if (disp.buttonA_on() and disp.buttonB_off()):  # just button A pressed
             fill_color = fill_colors[0]
-            draw.text((0, y), f"ButtonA={buttonA.value}, {buttonB.value}", font=font, fill=fill_color)
+            draw.text((0, y), f"Btns: A=ON, B=OFF", font=font, fill=colors['white'])
 
-        elif (not buttonB.value and buttonA):       # just button B pressed
+        elif (disp.buttonB_on() and disp.buttonA_off()):  # just button B pressed
             fill_color = fill_colors[0]
-            draw.text((0, y), f"ButtonB={buttonA.value}, {buttonB.value}", font=font, fill=fill_color)
+            draw.text((0, y), f"Btns: A=OFF, B=ON", font=font, fill=colors['white'])
+
+        elif (disp.buttonB_on() and disp.buttonA_on()):   # both on
+            fill_color = fill_colors[2]
+            draw.text((0, y), f"Btns: both ON", font=font, fill=colors['green'])
 
         else:
-            fill_color = fill_colors[0]
-            draw.text((0, y), f"BOTH={buttonA.value}, {buttonB.value}", font=font, fill=fill_color)
+            fill_color = fill_colors[3]
+            draw.text((0, y), f"Btns: both OFF", font=font, fill=colors['red'])
 
-        display.image(image, ROTATION)
+        disp.display.image(image, ROTATION)
         time.sleep(1)
 
 
