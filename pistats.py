@@ -3,10 +3,11 @@
 # Program to show system statistics on an Adafruit PiTFT (240x240) display on a Raspberry Pi 4.
 #   Written by: Tom Hicks. 9/9/21. After code on Adafruit site:
 #     https://learn.adafruit.com/adafruit-mini-pitft-135x240-color-tft-add-on-for-raspberry-pi/python-stats
-#   Last Modified: Create/use display class. Display button status.
+#   Last Modified: Add reboot/shutdown logic.
 #
 import board
 import digitalio
+import os
 import subprocess
 import time
 
@@ -15,11 +16,17 @@ from adafruit_rgb_display.rgb import color565
 import adafruit_rgb_display.st7789 as st7789
 
 
-# Config for display baudrate (default max is 24mhz):
-BAUDRATE = 64000000                         # The pi can be very fast!
-WIDTH = 240                                 # width of display
-HEIGHT = 240                                # height of display
 ROTATION = 180                              # rotation angle for top-to-bottom text
+
+COLORS = { "pink": "#FF9999", "aqua": "#00FFFF", "green": "#00FF00",
+           "white": "#FFFFFF", "yellow": "#FFFF00", "magenta": "#FF00FF",
+           "blue": "#0000FF", "red": "#FF0000" }
+
+FONT = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 24)
+TEXT_HEIGHT = FONT.getsize('T')[1]
+BIG_FONT = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 28)
+BIG_TEXT_HEIGHT = BIG_FONT.getsize('T')[1]
+
 
 
 class DisplaySt7789 ():
@@ -43,9 +50,9 @@ class DisplaySt7789 ():
             cs=cs_pin,
             dc=dc_pin,
             rst=reset_pin,
-            baudrate=BAUDRATE,
-            width=WIDTH,
-            height=HEIGHT,
+            baudrate=64000000,              # the pi can be very fast!
+            width=240,                      # width of display
+            height=240,                     # height of display
             x_offset=0,
             y_offset=80,
         )
@@ -86,6 +93,45 @@ class DisplaySt7789 ():
 
 
 
+def action_or_cancel (disp, draw, image, reboot=True):
+    "Give the user a chance to cancel the reboot or shutdown action, otherwise do the action."
+    act = 'REBOOT' if (reboot) else 'SHUTDOWN'
+    act_msg = 'Rebooting...' if (reboot) else 'Shutting down...'
+    color = COLORS['green'] if (reboot) else COLORS['yellow']
+
+    time.sleep(1)                           # got here too fast: need to let buttons clear!
+    for countdown in range(9, 0, -1):
+        reset_to_black(disp, draw)          # clear the drawing area
+
+        y = TEXT_HEIGHT
+        draw.text((0, y), f"{act}", font=BIG_FONT, fill=color)
+        y += BIG_TEXT_HEIGHT
+        draw.text((0, y), f"  in {countdown} seconds!!", font=BIG_FONT, fill=COLORS['aqua'])
+        y += 3 * BIG_TEXT_HEIGHT
+        draw.text((0, y), f"TO CANCEL:", font=BIG_FONT, fill=COLORS['white'])
+        y += BIG_TEXT_HEIGHT
+        draw.text((0, y), f" hold any button", font=BIG_FONT, fill=COLORS['white'])
+        y += 2 * BIG_TEXT_HEIGHT
+
+        disp.display.image(image, ROTATION)
+        time.sleep(1)
+
+        if (disp.buttonA_on() or disp.buttonB_on()):  # if either button pressed
+            one_msg(disp, draw, image, msg='  CANCELLED!', fill=color)
+            return
+
+
+    one_msg(disp, draw, image, msg=act_msg, fill=color)
+    flag = '-r' if (reboot) else '-P'
+    # print(f"sudo /usr/sbin/shutdown {flag} now --no-wall")
+    os.system(f"sudo /usr/sbin/shutdown {flag} now --no-wall")
+
+
+def draw_size (disp):
+    "Return the size (width, height) of the drawable area for the given display object."
+    return (disp.display.width - 1, disp.display.height - 1)
+
+
 def get_stats():
     """
     Run shell scripts for system monitoring from here and return a list of
@@ -115,55 +161,89 @@ def get_stats():
     return stats
 
 
+def one_msg (disp, draw, image, msg='', fill='#FFFFFF'):
+    "Clear the display and show the single given message, roughly centered."
+    reset_to_black(disp, draw)              # clear the drawing area
+    y = 3 * BIG_TEXT_HEIGHT
+    draw.text((0, y), msg, font=BIG_FONT, fill=fill)
+    disp.display.image(image, ROTATION)
+    time.sleep(2)
+
+
+def reset_to_black (disp, draw):
+    " Clear the given drawing area by drawing a black rectangle."
+    dwidth, dheight = draw_size(disp)
+    draw.rectangle((0, 0, dwidth, dheight), outline=(0, 0, 0), fill=(0, 0, 0))
+
+
+def restart_menu (disp, image, draw):
+    "Show the reboot/shutdown menu for a limited time; dispatch an action or timeout."
+    for countdown in range(10, 0, -1):
+        reset_to_black(disp, draw)          # clear the drawing area
+
+        y = TEXT_HEIGHT
+        draw.text((0, y), f"to REBOOT:", font=BIG_FONT, fill=COLORS['green'])
+        y += BIG_TEXT_HEIGHT
+        draw.text((0, y), f"   hold button A", font=FONT, fill=COLORS['white'])
+        y += 2 * TEXT_HEIGHT
+
+        draw.text((0, y), f"to SHUTDOWN:", font=BIG_FONT, fill=COLORS['yellow'])
+        y += BIG_TEXT_HEIGHT
+        draw.text((0, y), f"   hold button B", font=FONT, fill=COLORS['white'])
+        y += 2 * TEXT_HEIGHT
+
+        draw.text((0, y), f"Times out in:", font=BIG_FONT, fill=COLORS['red'])
+        y += BIG_TEXT_HEIGHT
+        draw.text((0, y), f"   {countdown} seconds", font=BIG_FONT, fill=COLORS['pink'])
+
+        if (disp.buttonA_on() and disp.buttonB_off()):  # just button A pressed
+            action_or_cancel(disp, draw, image, True)   # true => reboot
+            break
+
+        elif (disp.buttonB_on() and disp.buttonA_off()):  # just button B pressed
+            action_or_cancel(disp, draw, image, False)    # false => shutdown
+            break
+
+        disp.display.image(image, ROTATION)
+        time.sleep(1)
+
+
 def main (argv=None):
-    # Colors used to display the various computer stats returned from get stats function:
-    colors = { "pink": "#FF9999", "aqua": "#00FFFF", "green": "#00FF00",
-               "white": "#FFFFFF", "yellow": "#FFFF00", "magenta": "#FF00FF",
-               "blue": "#0000FF", "red": "#FF0000" }
-
-    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-
     disp = DisplaySt7789()
+    dwidth, dheight = draw_size(disp)
 
-    dwidth = WIDTH - 1
-    dheight = HEIGHT - 1
-
-    image = Image.new("RGB", (WIDTH, HEIGHT))
+    image = Image.new('RGB', (disp.display.width, disp.display.height))
     draw = ImageDraw.Draw(image)
+
+    sleep_time = 1                          # time to sleep (in seconds) in each iteration
 
     # Main loop:
     while True:
-        # clear the drawing area: reset to black
-        draw.rectangle((0, 0, dwidth, dheight), outline=(0, 0, 0), fill=(0, 0, 0))
+        reset_to_black(disp, draw)          # clear the drawing area
 
         y = 0
         stats = get_stats()
         if (stats):
-            text_height = font.getsize(stats[0])[1]
-            fill_colors = list(colors.values())
+            fill_colors = list(COLORS.values())
             for ndx, stat in enumerate(stats):
                 fill_color = fill_colors[ndx % len(fill_colors)]
-                draw.text((0, y), stat, font=font, fill=fill_color)
-                y += text_height
+                draw.text((0, y), stat, font=FONT, fill=fill_color)
+                y += TEXT_HEIGHT
 
         if (disp.buttonA_on() and disp.buttonB_off()):  # just button A pressed
-            fill_color = fill_colors[0]
-            draw.text((0, y), f"Btns: A=ON, B=OFF", font=font, fill=colors['white'])
+            draw.text((0, y), f"Btns: A=ON, B=OFF", font=FONT, fill=COLORS['white'])
 
         elif (disp.buttonB_on() and disp.buttonA_off()):  # just button B pressed
-            fill_color = fill_colors[0]
-            draw.text((0, y), f"Btns: A=OFF, B=ON", font=font, fill=colors['white'])
+            draw.text((0, y), f"Btns: A=OFF, B=ON", font=FONT, fill=COLORS['white'])
 
         elif (disp.buttonB_on() and disp.buttonA_on()):   # both on
-            fill_color = fill_colors[2]
-            draw.text((0, y), f"Btns: both ON", font=font, fill=colors['green'])
+            restart_menu(disp, image, draw)
 
         else:
-            fill_color = fill_colors[3]
-            draw.text((0, y), f"Btns: both OFF", font=font, fill=colors['red'])
+            draw.text((0, y), f"Btns: both OFF", font=FONT, fill=COLORS['red'])
 
         disp.display.image(image, ROTATION)
-        time.sleep(1)
+        time.sleep(sleep_time)
 
 
 
